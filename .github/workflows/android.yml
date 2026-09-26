@@ -24,7 +24,13 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Android SDK 36
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+        run: |
+          manager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$manager" ]; then
+            manager="$(find "$ANDROID_HOME/cmdline-tools" -maxdepth 3 -type f -name sdkmanager -print -quit)"
+          fi
+          test -n "$manager"
+          "$manager" "platforms;android-36" "build-tools;36.0.0"
       - name: Core and asset checks
         run: |
           python3 scripts/check-core.py
