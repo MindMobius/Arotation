@@ -1,6 +1,11 @@
 .gradle/
 **/build/
 local.properties
+*.apk
+*.aab
+*.apks
+dist/
+outputs/
 .idea/
 *.iml
 
