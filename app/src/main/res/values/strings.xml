@@ -1,0 +1,28 @@
+<resources>
+    <string name="app_name">Arotation</string>
+    <string name="notification_channel">悬浮按钮</string>
+    <string name="notification_title">Arotation</string>
+    <string name="notification_text">手动旋转已启用</string>
+    <string name="stop">停用</string>
+    <string name="settings">设置</string>
+    <string name="percent">%1$d%%</string>
+    <string name="add_tile">添加快捷开关</string>
+    <string name="tile_added">已添加到快捷设置</string>
+    <string name="tile_already_added">快捷开关已添加</string>
+    <string name="tile_add_manually">可下拉快捷设置，点编辑后添加 Arotation</string>
+    <string name="tile_on">悬浮按钮已开启</string>
+    <string name="tile_off">悬浮按钮已关闭</string>
+    <string name="tile_needs_access">需要授权</string>
+    <string name="background_title">后台运行</string>
+    <string name="background_status">电池优化：%1$s\n后台限制：%2$s</string>
+    <string name="battery_exempt">已排除</string>
+    <string name="battery_optimized">未排除</string>
+    <string name="background_restricted">有限制</string>
+    <string name="background_unrestricted">未检测到限制</string>
+    <string name="background_help">在电池设置中找到 Arotation，选择“不优化”或“不受限制”。\n\n若系统提供自启动、后台锁定，请同时允许。</string>
+    <string name="battery_settings">电池优化设置</string>
+    <string name="app_background_settings">应用后台设置</string>
+    <string name="power_save_settings">省电模式已开启 · 前往设置</string>
+    <string name="background_settings_unavailable">请在系统设置中打开 Arotation 的应用信息</string>
+    <string name="close">关闭</string>
+</resources>

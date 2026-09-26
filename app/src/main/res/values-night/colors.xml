@@ -1,0 +1,11 @@
+<resources>
+    <color name="radix_slate1">#111113</color>
+    <color name="radix_slate3">#212225</color>
+    <color name="radix_slate6">#363a3f</color>
+    <color name="radix_slate11">#b0b4ba</color>
+    <color name="radix_slate12">#edeef0</color>
+    <color name="radix_blue3">#0d2847</color>
+    <color name="radix_blue11">#70b8ff</color>
+    <color name="radix_blue12">#c2e6ff</color>
+    <color name="radix_red11">#ff9592</color>
+</resources>

@@ -1,0 +1,44 @@
+apply plugin: 'com.android.application'
+
+def releaseKeystore = providers.environmentVariable('AROTATION_KEYSTORE').orNull
+
+android {
+    namespace 'de.xianmu.arotation'
+    compileSdk 36
+    buildToolsVersion '36.0.0'
+
+    defaultConfig {
+        applicationId 'de.xianmu.arotation'
+        minSdk 36
+        targetSdk 36
+        versionCode 5
+        versionName '0.4.0'
+        resValue 'string', 'app_version', versionName
+        testInstrumentationRunner 'de.xianmu.arotation.DeviceChecks'
+    }
+
+    signingConfigs {
+        if (releaseKeystore) {
+            release {
+                storeFile file(releaseKeystore)
+                storePassword providers.environmentVariable('AROTATION_STORE_PASSWORD').get()
+                keyAlias providers.environmentVariable('AROTATION_KEY_ALIAS').get()
+                keyPassword providers.environmentVariable('AROTATION_KEY_PASSWORD').get()
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (releaseKeystore) signingConfig signingConfigs.release
+        }
+    }
+    // A release-signed test APK can exercise the exact, non-debuggable APK being shipped.
+    testBuildType providers.gradleProperty('testBuildType').getOrElse('debug')
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    lint { abortOnError true; checkReleaseBuilds true }
+}
+// Android SDK + Java only; no runtime or test dependencies.

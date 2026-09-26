@@ -1,0 +1,10 @@
+{
+  "tabler": {
+    "repo": "tabler/tabler-icons",
+    "commit": "0239805680a36bab4e1070529b6744924402d804"
+  },
+  "radix": {
+    "repo": "radix-ui/colors",
+    "commit": "dbdb85470547c7d34b9001f48fddb08ded335979"
+  }
+}

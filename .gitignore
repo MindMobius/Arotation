@@ -1,0 +1,22 @@
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+
+# Signing material and local credentials never belong in Git.
+*.jks
+*.keystore
+*.p12
+*.pfx
+signing/
+*signing*.json
+key.properties
+keystore.properties
+.env
+.env.*
+
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
