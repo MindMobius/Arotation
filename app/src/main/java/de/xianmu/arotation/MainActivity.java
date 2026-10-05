@@ -19,9 +19,11 @@ import android.view.*;
 import android.widget.*;
 
 import de.xianmu.arotation.data.Prefs;
+import de.xianmu.arotation.accessibility.NavigationAccessibilityService;
+import de.xianmu.arotation.quick.QuickAction;
 import de.xianmu.arotation.rotation.RotationController;
+import de.xianmu.arotation.system.NavigationAccess;
 import de.xianmu.arotation.ui.BackgroundGuide;
-import de.xianmu.arotation.ui.IconCatalog;
 import de.xianmu.arotation.ui.Palette;
 
 import java.nio.charset.StandardCharsets;
@@ -34,10 +36,11 @@ public final class MainActivity extends Activity {
     private boolean pendingEnable;
     private Prefs prefs;
     private Palette colors;
-    private Switch power,tuck;
+    private Switch power;
     private TextView error,opacityLabel;
     private LinearLayout permissionArea;
-    private ImageButton[] iconButtons;
+    private Switch[] quickSwitches;
+    private final QuickAction[] quickValues=QuickAction.values();
     private boolean receiverRegistered,refreshing;
     private final BroadcastReceiver stateReceiver=new BroadcastReceiver(){
         @Override public void onReceive(Context c,Intent i){refreshState();}
@@ -47,8 +50,9 @@ public final class MainActivity extends Activity {
         pendingEnable=state!=null?state.getBoolean("pending_enable",false):ACTION_ENABLE.equals(getIntent().getAction());
         getIntent().setAction(null);
         backgroundGuide=new BackgroundGuide(this);
-        recover();IconCatalog.applyLauncher(this,prefs.icon());build();
-        registerReceiver(stateReceiver,new IntentFilter(RotationService.STATE),Context.RECEIVER_NOT_EXPORTED);receiverRegistered=true;
+        recover();build();
+        IntentFilter states=new IntentFilter();states.addAction(RotationService.STATE);states.addAction(NavigationAccessibilityService.STATE);
+        registerReceiver(stateReceiver,states,Context.RECEIVER_NOT_EXPORTED);receiverRegistered=true;
     }
     private void recover(){
         if(!RotationService.running&&prefs.store.getBoolean("session",false)&&Settings.System.canWrite(this)){
@@ -96,7 +100,6 @@ public final class MainActivity extends Activity {
         background.setMinHeight(dp(48));background.setOnClickListener(v->backgroundGuide.show());
         shortcuts.addView(background,new LinearLayout.LayoutParams(0,-2,1));content.addView(shortcuts);
         space(content,12);divider(content);space(content,24);
-        content.addView(text("图标",14,colors.muted,false));space(content,12);icons(content,width-48);space(content,20);
         LinearLayout size=row();size.addView(text("大小",16,colors.ink,false),new LinearLayout.LayoutParams(0,-2,1));
         size.addView(segments(new String[]{"小","中","大"},prefs.size(),i->prefs.store.edit().putInt("size",i).apply()),new LinearLayout.LayoutParams(dp(180),dp(48)));
         content.addView(size,new LinearLayout.LayoutParams(-1,dp(56)));space(content,12);
@@ -111,39 +114,23 @@ public final class MainActivity extends Activity {
             @Override public void onStopTrackingTouch(SeekBar b){prefs.store.edit().putInt("opacity",100-b.getProgress()).apply();}
         });
         space(content,12);divider(content);space(content,12);
-        toggle(content,"自动贴边",prefs.snap(),value->{prefs.store.edit().putBoolean("snap",value).apply();tuck.setEnabled(value);});
-        tuck=toggle(content,"贴边收起",prefs.store.getBoolean("hide",false),value->prefs.store.edit().putBoolean("hide",value).apply());tuck.setEnabled(prefs.snap());
+        toggle(content,"自动贴边",prefs.snap(),value->prefs.store.edit().putBoolean("snap",value).apply());
+        space(content,12);divider(content);space(content,24);
+        content.addView(text(getString(R.string.quick_actions),14,colors.muted,false));
+        space(content,4);
+        content.addView(text(getString(R.string.quick_actions_help),13,colors.muted,false));
+        space(content,8);
+        quickSwitches=new Switch[quickValues.length];
+        for(int i=0;i<quickValues.length;i++){
+            QuickAction action=quickValues[i];final int index=i;
+            quickSwitches[i]=actionToggle(content,action,(prefs.quickActions()&action.bit)!=0,
+                value->onQuickAction(action,index,value));
+        }
         setContentView(root);
         getWindow().getInsetsController().setSystemBarsAppearance(colors.dark?0:
             WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
             WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
         root.requestApplyInsets();
-    }
-    private void icons(LinearLayout parent,int widthDp){
-        iconButtons=new ImageButton[IconCatalog.DRAWABLES.length];int columns=widthDp>=400?6:3;
-        for(int start=0;start<iconButtons.length;start+=columns){
-            LinearLayout line=row();
-            for(int i=start;i<Math.min(start+columns,iconButtons.length);i++){
-                final int index=i;ImageButton button=iconButton(IconCatalog.DRAWABLES[i],"图标："+IconCatalog.NAMES[i]);
-                button.setOnClickListener(v->{
-                    try{IconCatalog.applyLauncher(this,index);prefs.store.edit().putInt("icon",index).apply();styleIcons();}
-                    catch(RuntimeException e){Toast.makeText(this,"图标未更改，请重试",Toast.LENGTH_SHORT).show();}
-                });
-                iconButtons[i]=button;LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(56),1);
-                if(i>start)lp.leftMargin=dp(8);line.addView(button,lp);
-            }
-            parent.addView(line);if(start+columns<iconButtons.length)space(parent,8);
-        }
-        styleIcons();
-    }
-    private void styleIcons(){
-        for(int i=0;i<iconButtons.length;i++){
-            boolean selected=i==prefs.icon();ImageButton b=iconButtons[i];b.setSelected(selected);
-            b.setImageTintList(ColorStateList.valueOf(selected?colors.accent:colors.muted));
-            GradientDrawable bg=round(selected?colors.tonal:colors.background,12);
-            bg.setStroke(dp(1),selected?colors.accent:colors.line);b.setBackground(new RippleDrawable(ColorStateList.valueOf(colors.line),bg,null));
-            b.setStateDescription(selected?"已选中":"未选中");
-        }
     }
     private void setEnabled(boolean enabled){
         if(!enabled){if(RotationService.running)startService(new Intent(this,RotationService.class).setAction(RotationService.STOP));return;}
@@ -162,6 +149,27 @@ public final class MainActivity extends Activity {
         permissionArea.removeAllViews();
         if(!Settings.canDrawOverlays(this))permission("悬浮显示",Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
         if(!Settings.System.canWrite(this))permission("修改系统设置",Settings.ACTION_MANAGE_WRITE_SETTINGS);
+        if(prefs.needsAccessibility())navigationPermission();
+    }
+    private void navigationPermission(){
+        boolean connected=NavigationAccessibilityService.isConnected();
+        LinearLayout line=row();
+        line.addView(text(getString(R.string.navigation_title),14,colors.muted,false),new LinearLayout.LayoutParams(0,-2,1));
+        line.addView(text(getString(connected?R.string.navigation_enabled:R.string.navigation_not_enabled),14,connected?colors.accent:colors.muted,false));
+        Button allow=button(getString(R.string.navigation_go_enable));allow.setTextColor(colors.accent);
+        allow.setVisibility(connected?View.INVISIBLE:View.VISIBLE);
+        allow.setOnClickListener(v->NavigationAccess.open(this));
+        line.addView(allow,new LinearLayout.LayoutParams(dp(84),dp(48)));
+        permissionArea.addView(line,new LinearLayout.LayoutParams(-1,dp(52)));
+    }
+    private void onQuickAction(QuickAction action,int index,boolean enabled){
+        if(refreshing)return;
+        if(!prefs.setQuickAction(action,enabled)){
+            refreshing=true;quickSwitches[index].setChecked(true);refreshing=false;
+            Toast.makeText(this,R.string.quick_actions_minimum,Toast.LENGTH_SHORT).show();
+            return;
+        }
+        refreshState();
     }
     private void permission(String title,String action){
         LinearLayout line=row();line.addView(text(title,14,colors.muted,false),new LinearLayout.LayoutParams(0,-2,1));
@@ -177,7 +185,7 @@ public final class MainActivity extends Activity {
         try{
             getSystemService(StatusBarManager.class).requestAddTileService(
                 new ComponentName(this,RotationTileService.class),getString(R.string.app_name),
-                Icon.createWithResource(this,IconCatalog.DRAWABLES[prefs.icon()]),getMainExecutor(),result->{
+                Icon.createWithResource(this,R.drawable.ic_tabler_rotate_clockwise),getMainExecutor(),result->{
                     if(isFinishing()||isDestroyed())return;
                     addTile.setEnabled(true);
                     int message=switch(result){
@@ -198,7 +206,7 @@ public final class MainActivity extends Activity {
             switch(item.getItemId()){
                 case 1:new AlertDialog.Builder(this).setTitle("横屏方向").setSingleChoiceItems(new String[]{"默认","反向"},prefs.reverseLandscape()?1:0,(dialog,i)->{prefs.store.edit().putBoolean("reverse",i==1).apply();dialog.dismiss();}).setNegativeButton("取消",null).show();break;
                 case 2:prefs.resetPositions();if(RotationService.running)startService(new Intent(this,RotationService.class).setAction(RotationService.RESET));Toast.makeText(this,"位置已重置",Toast.LENGTH_SHORT).show();break;
-                case 3:new AlertDialog.Builder(this).setTitle("使用方法").setMessage("轻点切换横竖屏，按住拖动。\n\n图标同时用于悬浮按钮和桌面。\n\n停用后恢复之前的旋转设置。").setPositiveButton("关闭",null).show();break;
+                case 3:new AlertDialog.Builder(this).setTitle("使用方法").setMessage(R.string.usage_help).setPositiveButton("关闭",null).show();break;
                 case 4:startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,getPackageName()));break;
                 case 5:licenses();break;
                 default:return false;
@@ -217,11 +225,29 @@ public final class MainActivity extends Activity {
     private Switch toggle(LinearLayout parent,String label,boolean checked,java.util.function.Consumer<Boolean> action){
         LinearLayout row=row();TextView name=text(label,16,colors.ink,false);row.addView(name,new LinearLayout.LayoutParams(0,-2,1));
         Switch toggle=new Switch(this);toggle.setId(View.generateViewId());name.setLabelFor(toggle.getId());toggle.setContentDescription(label);toggle.setChecked(checked);
-        toggle.setThumbTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{colors.accent,colors.muted}));
-        toggle.setTrackTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{colors.tonal,colors.line}));
+        toggle.setThumbTintList(switchThumb());toggle.setTrackTintList(switchTrack());
         row.addView(toggle,new LinearLayout.LayoutParams(dp(56),dp(48)));toggle.setOnCheckedChangeListener((b,v)->action.accept(v));row.setOnClickListener(v->{if(toggle.isEnabled())toggle.performClick();});
         parent.addView(row,new LinearLayout.LayoutParams(-1,dp(56)));return toggle;
     }
+    private Switch actionToggle(LinearLayout parent,QuickAction action,boolean checked,java.util.function.Consumer<Boolean> onChange){
+        String label=getString(action.label);
+        LinearLayout row=row();
+        ImageView icon=new ImageView(this);
+        icon.setImageResource(action.icon);
+        icon.setImageTintList(ColorStateList.valueOf(colors.muted));
+        icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        row.addView(icon,new LinearLayout.LayoutParams(dp(24),dp(24)));
+        TextView name=text(label,16,colors.ink,false);
+        LinearLayout.LayoutParams nameParams=new LinearLayout.LayoutParams(0,-2,1);nameParams.leftMargin=dp(12);
+        row.addView(name,nameParams);
+        Switch toggle=new Switch(this);toggle.setId(View.generateViewId());name.setLabelFor(toggle.getId());toggle.setContentDescription(label);
+        toggle.setChecked(checked);toggle.setThumbTintList(switchThumb());toggle.setTrackTintList(switchTrack());
+        row.addView(toggle,new LinearLayout.LayoutParams(dp(56),dp(48)));
+        toggle.setOnCheckedChangeListener((b,v)->onChange.accept(v));row.setOnClickListener(v->{if(toggle.isEnabled())toggle.performClick();});
+        parent.addView(row,new LinearLayout.LayoutParams(-1,dp(56)));return toggle;
+    }
+    private ColorStateList switchThumb(){return new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{colors.accent,colors.muted});}
+    private ColorStateList switchTrack(){return new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{colors.tonal,colors.line});}
     private LinearLayout segments(String[] labels,int selected,java.util.function.IntConsumer action){
         LinearLayout row=row();Button[] buttons=new Button[labels.length];
         for(int i=0;i<labels.length;i++){

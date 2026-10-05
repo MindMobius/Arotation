@@ -1,8 +1,8 @@
 <!--
-tags: [direction, west, east, arrows, exchange, navigation, flow, movement, route, path]
+tags: [back, swipe, return, arrow, left, direction, pointer, navigation, flow, navigate]
 category: Arrows
-version: "1.70"
-unicode: "f1f4"
+version: "1.0"
+unicode: "ea19"
 -->
 <svg
   xmlns="http://www.w3.org/2000/svg"
@@ -15,6 +15,7 @@ unicode: "f1f4"
   stroke-linecap="round"
   stroke-linejoin="round"
 >
-  <path d="M7 10h14l-4 -4" />
-  <path d="M17 14h-14l4 4" />
+  <path d="M5 12l14 0" />
+  <path d="M5 12l6 6" />
+  <path d="M5 12l6 -6" />
 </svg>

@@ -2,7 +2,7 @@
     <string name="app_name">Arotation</string>
     <string name="notification_channel">悬浮按钮</string>
     <string name="notification_title">Arotation</string>
-    <string name="notification_text">手动旋转已启用</string>
+    <string name="notification_text">悬浮按钮已开启</string>
     <string name="stop">停用</string>
     <string name="settings">设置</string>
     <string name="percent">%1$d%%</string>
@@ -25,4 +25,29 @@
     <string name="power_save_settings">省电模式已开启 · 前往设置</string>
     <string name="background_settings_unavailable">请在系统设置中打开 Arotation 的应用信息</string>
     <string name="close">关闭</string>
+    <string name="quick_actions">快捷操作</string>
+    <string name="action_rotate">旋转</string>
+    <string name="action_back">返回</string>
+    <string name="action_home">桌面</string>
+    <string name="action_recents">最近任务</string>
+    <string name="quick_actions_help">点按小圆点展开扇形菜单。</string>
+    <string name="quick_actions_minimum">保留至少一个快捷操作</string>
+    <string name="quick_menu_open">打开快捷操作</string>
+    <string name="quick_menu_close">收起快捷操作</string>
+    <string name="navigation_title">系统导航</string>
+    <string name="navigation_go_enable">去开启</string>
+    <string name="navigation_enabled">已开启</string>
+    <string name="navigation_not_enabled">未开启</string>
+    <string name="navigation_service_label">Arotation · 系统导航</string>
+    <string name="navigation_accessibility_description">只通过悬浮球执行返回和最近任务。不读取屏幕内容，不截图，不监听应用操作。</string>
+    <string name="navigation_settings_unavailable">请在系统设置的“无障碍”中开启 Arotation 的系统导航</string>
+    <string name="navigation_unavailable">当前界面无法执行此操作</string>
+    <string name="navigation_required_description">%1$s需要开启系统导航，请在 Arotation 设置中开启</string>
+    <string name="usage_help">轻点小圆点展开扇形快捷菜单，点动作立即执行；再点圆点收起。
+按住圆点可以换位置，长按不会打开设置。
+
+返回和最近任务需要开启系统导航；旋转和桌面不需要。
+
+停用后恢复之前的旋转设置。</string>
 </resources>
+

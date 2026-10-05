@@ -5,7 +5,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.SharedPreferences;
 import android.graphics.drawable.Icon;
 import android.os.SystemClock;
 import android.provider.Settings;
@@ -14,10 +13,9 @@ import android.service.quicksettings.TileService;
 import android.util.Log;
 
 import de.xianmu.arotation.data.Prefs;
-import de.xianmu.arotation.ui.IconCatalog;
 
 /** A normal listening tile: SystemUI binds while visible, with no polling or idle work. */
-public final class RotationTileService extends TileService implements SharedPreferences.OnSharedPreferenceChangeListener {
+public final class RotationTileService extends TileService {
     private Prefs prefs;
     private boolean listening;
     private long lastClick;
@@ -34,7 +32,6 @@ public final class RotationTileService extends TileService implements SharedPref
         super.onStartListening();
         if (!listening) {
             registerReceiver(stateReceiver, new IntentFilter(RotationService.STATE), Context.RECEIVER_NOT_EXPORTED);
-            prefs.store.registerOnSharedPreferenceChangeListener(this);
             listening = true;
         }
         refreshTile();
@@ -54,11 +51,6 @@ public final class RotationTileService extends TileService implements SharedPref
         if (!listening) return;
         listening = false;
         unregisterReceiver(stateReceiver);
-        prefs.store.unregisterOnSharedPreferenceChangeListener(this);
-    }
-
-    @Override public void onSharedPreferenceChanged(SharedPreferences store, String key) {
-        if ("icon".equals(key)) refreshTile();
     }
 
     @Override public void onClick() {
@@ -106,7 +98,7 @@ public final class RotationTileService extends TileService implements SharedPref
         tile.setSubtitle(state);
         tile.setStateDescription(state);
         tile.setContentDescription(getString(R.string.app_name) + "，" + state);
-        tile.setIcon(Icon.createWithResource(this, IconCatalog.DRAWABLES[prefs.icon()]));
+        tile.setIcon(Icon.createWithResource(this, R.drawable.ic_tabler_rotate_clockwise));
         tile.updateTile();
     }
 

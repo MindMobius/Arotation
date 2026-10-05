@@ -11,7 +11,9 @@ import android.provider.Settings;
 import android.widget.Toast;
 
 import de.xianmu.arotation.data.Prefs;
+import de.xianmu.arotation.accessibility.NavigationAccessibilityService;
 import de.xianmu.arotation.overlay.OverlayHost;
+import de.xianmu.arotation.quick.QuickAction;
 import de.xianmu.arotation.rotation.RotationController;
 
 /** User-started foreground service. No boot receiver, network, sensors or wake lock. */
@@ -99,6 +101,22 @@ public final class RotationService extends Service implements OverlayHost.Action
             },1400);
         }catch(RuntimeException failure){pendingRotation=-1;android.util.Log.e("Arotation","Rotation request failed",failure);fail("切换未生效，请重新检查系统授权");}
     }
+    @Override public void navigate(QuickAction action) {
+        if(stopping||action==null||!action.isNavigation())return;
+        if(action==QuickAction.HOME) {
+            // The visible overlay keeps the background-activity-start allowance, so home needs no
+            // elevated permission at all.
+            try{startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));}
+            catch(RuntimeException failure){Toast.makeText(this,R.string.navigation_unavailable,Toast.LENGTH_SHORT).show();}
+            return;
+        }
+        if(!NavigationAccessibilityService.isConnected()) {
+            Toast.makeText(this,getString(R.string.navigation_required_description,getString(action.label)),Toast.LENGTH_LONG).show();
+            return;
+        }
+        if(!NavigationAccessibilityService.perform(action))
+            Toast.makeText(this,R.string.navigation_unavailable,Toast.LENGTH_SHORT).show();
+    }
     private Intent settingsIntent() {
         // Permission pages can live above our Activity in the same task; return to our actual settings.
         return new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|
@@ -128,7 +146,9 @@ public final class RotationService extends Service implements OverlayHost.Action
         super.onConfigurationChanged(c);if(overlay!=null)overlay.refresh();
     }
     @Override public void onSharedPreferenceChanged(android.content.SharedPreferences p,String key) {
-        if(overlay!=null&&("size".equals(key)||"opacity".equals(key)||"snap".equals(key)||"hide".equals(key)||"icon".equals(key)))overlay.refresh();
+        // A null key means the whole store was cleared; refresh for every geometry change.
+        if(overlay!=null&&(key==null||"size".equals(key)||"opacity".equals(key)||"snap".equals(key)||
+            "quick_actions".equals(key)))overlay.refresh();
     }
     @Override public void onDestroy() {
         stopping=true;running=false;handler.removeCallbacksAndMessages(null);

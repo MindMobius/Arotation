@@ -9,4 +9,5 @@
     <color name="radix_blue12">#113264</color>
     <color name="radix_red11">#ce2c31</color>
     <color name="icon_background">#1c2024</color>
+    <color name="icon_foreground">#fcfcfd</color>
 </resources>

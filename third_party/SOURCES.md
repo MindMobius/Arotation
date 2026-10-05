@@ -6,9 +6,11 @@
 - 作者/项目：Paweł Kuna / Tabler。
 - 官方仓库：https://github.com/tabler/tabler-icons
 - 固定版本：`0239805680a36bab4e1070529b6744924402d804`。
-- 使用：rotate-clockwise, refresh, rotate-rectangle, rotate-clockwise-2, arrows-exchange, device-tablet，以及 dots 更多菜单图标。
+- 使用：dots 更多菜单图标；快捷操作为 rotate-clockwise、arrow-left、home、apps（同一固定提交）。
+  其余字形已在 2026-10-06 随“取消换图标”一起移除。
 - 原始 SVG 位于 `tabler/`。从该提交的 `icons/outline/` 下载。
-- 转换：保留原始 pathData、24×24 viewport、2px 圆头圆角描边；转换为 Android VectorDrawable。桌面 adaptive icon 只进行等比缩放和居中。
+- 转换：保留原始 pathData、24×24 viewport、2px 圆头圆角描边；转换为 Android VectorDrawable。
+  桌面 adaptive icon 的前景是应用自有的圆环几何，不使用 Tabler 素材。
 - 许可：MIT，完整文本见 `Tabler-Icons-MIT.txt`；也随 APK 打包。
 
 ## Radix Colors
