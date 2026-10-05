@@ -1,7 +1,8 @@
 package de.xianmu.arotation;
 
 import de.xianmu.arotation.data.Prefs;
-import de.xianmu.arotation.ui.IconCatalog;
+import de.xianmu.arotation.accessibility.NavigationAccessibilityService;
+import de.xianmu.arotation.quick.QuickAction;
 
 import android.app.*;
 import android.accessibilityservice.AccessibilityServiceInfo;
@@ -31,7 +32,8 @@ public final class DeviceChecks extends Instrumentation {
     private void disable(){runOnMainSync(()->app.stopService(new Intent(app,RotationService.class)));await(()->!RotationService.running,"foreground service stopped",5000);SystemClock.sleep(250);}
     private AccessibilityNodeInfo find(AccessibilityNodeInfo root) {
         if(root==null)return null;
-        CharSequence d=root.getContentDescription();if(d!=null&&(d.toString().equals("切换为竖屏")||d.toString().equals("切换为横屏")))return root;
+        CharSequence d=root.getContentDescription();
+        if(d!=null&&(d.toString().equals("打开快捷操作")||d.toString().equals("收起快捷操作")))return root;
         for(int n=0;n<root.getChildCount();n++){AccessibilityNodeInfo found=find(root.getChild(n));if(found!=null)return found;}return null;
     }
     private AccessibilityNodeInfo byDescription(AccessibilityNodeInfo node,String label) {
@@ -46,6 +48,57 @@ public final class DeviceChecks extends Instrumentation {
         for(AccessibilityWindowInfo window:getUiAutomation().getWindows()){
             AccessibilityNodeInfo found=find(window.getRoot());if(found!=null)return found;
         }return null;
+    }
+    private AccessibilityNodeInfo overlayNode(String label) {
+        getUiAutomation().clearCache();
+        for(AccessibilityWindowInfo window:getUiAutomation().getWindows()){
+            AccessibilityNodeInfo found=byDescription(window.getRoot(),label);if(found!=null)return found;
+        }return null;
+    }
+    /** Menu cells only: the settings switches reuse the same labels in the activity window. */
+    private AccessibilityNodeInfo menuCell(String label) {
+        getUiAutomation().clearCache();
+        for(AccessibilityWindowInfo window:getUiAutomation().getWindows()){
+            AccessibilityNodeInfo found=byDescription(window.getRoot(),label);
+            if(found!=null&&found.getClassName()!=null&&found.getClassName().toString().endsWith("ImageButton"))return found;
+        }return null;
+    }
+    /** One cache-clear pass for several ring keys, so animation timing cannot split the lookups. */
+    private java.util.Map<String,Rect> overlayRects(String[] labels) {
+        java.util.Map<String,Rect> found=new java.util.HashMap<>();
+        getUiAutomation().clearCache();
+        for(AccessibilityWindowInfo window:getUiAutomation().getWindows()){
+            AccessibilityNodeInfo root=window.getRoot();
+            if(root==null)continue;
+            for(String label:labels) {
+                if(found.containsKey(label))continue;
+                AccessibilityNodeInfo node=byDescription(root,label);
+                if(node!=null&&node.getClassName()!=null&&node.getClassName().toString().endsWith("ImageButton")){
+                    Rect rect=new Rect();node.getBoundsInScreen(rect);found.put(label,rect);
+                }
+            }
+        }
+        return found;
+    }
+    /** The ball is "打开快捷操作" while closed and "收起快捷操作" while the ring is open. */
+    private AccessibilityNodeInfo ballNode() {
+        AccessibilityNodeInfo open=overlayNode("打开快捷操作");
+        return open!=null?open:overlayNode("收起快捷操作");
+    }
+    /** The dot always opens the fan; rotating is one tap on the dot plus one on the rotate key. */
+    private void rotateViaRing() {
+        Rect dot=overlayBounds();
+        tap(dot);
+        await(()->overlayRects(new String[]{"旋转"}).size()==1,"rotate key appears in the fan",3000);
+        SystemClock.sleep(350);
+        Rect key=overlayRects(new String[]{"旋转"}).get("旋转");
+        tap(key);
+    }
+    private AccessibilityNodeInfo nodeText(AccessibilityNodeInfo node,String text) {
+        if(node==null)return null;
+        if(text.contentEquals(node.getText()==null?"":node.getText()))return node;
+        for(int i=0;i<node.getChildCount();i++){AccessibilityNodeInfo found=nodeText(node.getChild(i),text);if(found!=null)return found;}
+        return null;
     }
     private void motion(long down,int action,float x,float y) {
         android.view.MotionEvent event=android.view.MotionEvent.obtain(down,SystemClock.uptimeMillis(),action,x,y,0);
@@ -82,52 +135,48 @@ public final class DeviceChecks extends Instrumentation {
     }
     private void edgeChecks(Prefs live) throws Exception {
         float density=app.getResources().getDisplayMetrics().density;
-        int hit=Math.round(48*density);
         getUiAutomation().executeShellCommand("input keyevent KEYCODE_HOME").close();SystemClock.sleep(500);
-        live.store.edit().putBoolean("snap",true).putBoolean("hide",true).putInt("opacity",56).commit();
+        live.store.edit().putBoolean("snap",true).putInt("opacity",56).commit();
         for(int size=0;size<3;size++)for(boolean left:new boolean[]{true,false}) {
             boolean landscape=bounds().width()>bounds().height();
             live.position(landscape,left?0:1,.5f);
             live.store.edit().putInt("size",size).commit();
             runOnMainSync(()->app.startService(new Intent(app,RotationService.class).setAction(RotationService.RESET)));
-            SystemClock.sleep(450);Rect expanded=overlayBounds();
-            check(expanded.width()==Math.round(live.touchDp()*density),"expanded size "+size+" left="+left);
-            check(left?expanded.left<Math.round(8*density):bounds().width()-expanded.right<Math.round(8*density),"expanded control is settled at the selected edge");
-            if(size==1)capture("expanded-"+(left?"left":"right"));
-            SystemClock.sleep(3000);Rect edge=overlayBounds();
-            check(Math.abs(edge.width()-hit)<=1&&edge.height()>=hit,"exact bounded 48dp edge hit area size="+size+" left="+left);
-            check(left?edge.left==0:edge.right==bounds().width(),"handle docks at the physical edge size="+size+" left="+left);
-            check(Math.abs(edge.centerY()-expanded.centerY())<=1,"collapse preserves vertical center size="+size+" left="+left+" "+expanded.toShortString()+" -> "+edge.toShortString());
-            check(live.x(landscape)==(left?0:1)&&live.y(landscape)==.5f,"collapse does not overwrite saved position");
-            capture("tucked-size-"+size+"-"+(left?"left":"right"));
+            SystemClock.sleep(450);Rect placed=overlayBounds();
+            check(placed.width()==Math.round(live.touchDp()*density),"ball keeps its touch size "+size+" left="+left);
+            check(placed.width()==placed.height(),"ball window stays square size="+size);
+            check(left?placed.left<Math.round(8*density):bounds().width()-placed.right<Math.round(8*density),"ball is settled at the selected edge");
+            if(size==1)capture("ball-"+(left?"left":"right"));
+            SystemClock.sleep(3200);Rect idle=overlayBounds();
+            check(idle.equals(placed),"idle only fades: the ball never changes bounds size="+size+" left="+left);
+            check(live.x(landscape)==(left?0:1)&&live.y(landscape)==.5f,"idle never overwrites the saved position");
             if(size==1) {
-                int oldRotation=display().getRotation();float gripX=left?6*density:bounds().width()-6*density;
-                long grip=SystemClock.uptimeMillis();motion(grip,0,gripX,edge.centerY());
+                int oldRotation=display().getRotation();
+                long grip=SystemClock.uptimeMillis();motion(grip,0,placed.centerX(),placed.centerY());
                 SystemClock.sleep(android.view.ViewConfiguration.getLongPressTimeout()+100);
                 for(int step=1;step<=16;step++) {
-                    float t=step/16f;motion(grip,2,gripX+(left?120:-120)*density*t,edge.centerY()+80*density*t);SystemClock.sleep(12);
+                    float t=step/16f;motion(grip,2,placed.centerX()+(left?120:-120)*density*t,placed.centerY()+80*density*t);SystemClock.sleep(12);
                 }
-                motion(grip,1,gripX+(left?120:-120)*density,edge.centerY()+80*density);SystemClock.sleep(350);
-                check(overlayBounds().top>edge.top+40*density,"dragging the visible edge grip is not stolen by system Back left="+left);
-                check(display().getRotation()==oldRotation,"visible-grip drag never rotates left="+left);
+                motion(grip,1,placed.centerX()+(left?120:-120)*density,placed.centerY()+80*density);SystemClock.sleep(350);
+                check(overlayBounds().top>placed.top+40*density,"dragging the ball is not stolen by system Back left="+left);
+                check(display().getRotation()==oldRotation,"dragging the ball never rotates left="+left);
             }
         }
-        Rect tucked=overlayBounds();int before=display().getRotation();
-        long down=SystemClock.uptimeMillis();motion(down,0,tucked.centerX(),tucked.centerY());SystemClock.sleep(180);
-        check(tucked.equals(overlayBounds()),"pressing tucked handle does not jump or shrink its hit area");
+        Rect ball=overlayBounds();int before=display().getRotation();
+        long down=SystemClock.uptimeMillis();motion(down,0,ball.centerX(),ball.centerY());SystemClock.sleep(180);
+        check(ball.equals(overlayBounds()),"pressing the ball does not move or resize it");
         SystemClock.sleep(android.view.ViewConfiguration.getLongPressTimeout()+100);
         int targetX=bounds().width()/3,targetY=bounds().height()/3;
         for(int step=1;step<=16;step++) {
-            float t=step/16f;motion(down,2,tucked.centerX()+(targetX-tucked.centerX())*t,tucked.centerY()+(targetY-tucked.centerY())*t);SystemClock.sleep(12);
+            float t=step/16f;motion(down,2,ball.centerX()+(targetX-ball.centerX())*t,ball.centerY()+(targetY-ball.centerY())*t);SystemClock.sleep(12);
         }
         motion(down,1,targetX,targetY);SystemClock.sleep(350);
         check(display().getRotation()==before,"long hold followed by dragging never rotates");
-        check(overlayBounds().left<bounds().width()/4&&overlayBounds().top<tucked.top,"long hold does not disable dragging from the handle");
-        check(!app.getPackageName().contentEquals(getUiAutomation().getRootInActiveWindow().getPackageName()),"dragging from a held handle never opens settings");
-        SystemClock.sleep(3000);Rect leftHandle=overlayBounds();tap(leftHandle);
-        await(()->display().getRotation()!=before,"one tap on the new left handle rotates directly",4000);SystemClock.sleep(600);
-        live.store.edit().putInt("size",1).commit();SystemClock.sleep(400);capture("rotated-expanded");
-        SystemClock.sleep(3100);capture("rotated-tucked");
+        check(overlayBounds().left<bounds().width()/4,"long hold does not disable dragging");
+        check(!app.getPackageName().contentEquals(getUiAutomation().getRootInActiveWindow().getPackageName()),"dragging the ball never opens settings");
+        SystemClock.sleep(3000);rotateViaRing();
+        await(()->display().getRotation()!=before,"a dimmed dot still rotates from the fan",5000);SystemClock.sleep(600);
+        live.store.edit().putInt("size",1).commit();SystemClock.sleep(400);capture("ball-rotated");
         Rect handle=overlayBounds();int cancelRotation=display().getRotation();
         long cancel=SystemClock.uptimeMillis();motion(cancel,0,handle.centerX(),handle.centerY());motion(cancel,3,handle.centerX(),handle.centerY());SystemClock.sleep(350);
         check(display().getRotation()==cancelRotation,"cancelled edge press never rotates");
@@ -137,9 +186,9 @@ public final class DeviceChecks extends Instrumentation {
         twoPointers(multiple,android.view.MotionEvent.ACTION_POINTER_UP|(1<<8),multi.centerX(),multi.centerY());
         motion(multiple,1,multi.centerX(),multi.centerY());SystemClock.sleep(350);
         check(display().getRotation()==cancelRotation,"multi-touch interruption never becomes a rotate click");
-        Rect expanded=overlayBounds();long held=SystemClock.uptimeMillis();motion(held,0,expanded.centerX(),expanded.centerY());SystemClock.sleep(3300);
-        check(overlayBounds().width()==Math.round(live.touchDp()*density),"idle timer never collapses the button under a held finger");
-        motion(held,1,expanded.centerX(),expanded.centerY());SystemClock.sleep(300);
+        Rect held=overlayBounds();long hold=SystemClock.uptimeMillis();motion(hold,0,held.centerX(),held.centerY());SystemClock.sleep(3300);
+        check(held.equals(overlayBounds()),"a held ball never fades away or changes bounds");
+        motion(hold,1,held.centerX(),held.centerY());SystemClock.sleep(300);
         check(display().getRotation()==cancelRotation,"a stationary hold past idle timeout does not rotate");
         // Test the reduced-animation path with the actual global setting, then restore it.
         float oldScale=Settings.Global.getFloat(app.getContentResolver(),Settings.Global.ANIMATOR_DURATION_SCALE,1);
@@ -148,19 +197,131 @@ public final class DeviceChecks extends Instrumentation {
             Settings.Global.putFloat(app.getContentResolver(),Settings.Global.ANIMATOR_DURATION_SCALE,0);SystemClock.sleep(300);
             runOnMainSync(()->app.startService(new Intent(app,RotationService.class).setAction(RotationService.RESET)));
             SystemClock.sleep(3300);
-            check(overlayBounds().width()==hit,"animation-disabled mode still produces the bounded handle");
-            Rect noMotion=overlayBounds();tap(noMotion);
-            await(()->display().getRotation()!=cancelRotation,"animation-disabled handle still rotates in one tap",4000);
+            check(overlayBounds().width()==Math.round(live.touchDp()*density),"animation-disabled mode keeps the full ball window");
+            rotateViaRing();
+            await(()->display().getRotation()!=cancelRotation,"animation-disabled fan still rotates",5000);
         }finally{
             Settings.Global.putFloat(app.getContentResolver(),Settings.Global.ANIMATOR_DURATION_SCALE,oldScale);
             getUiAutomation().dropShellPermissionIdentity();
         }
         live.store.edit().putBoolean("snap",false).commit();SystemClock.sleep(3400);
-        check(overlayBounds().width()==Math.round(live.touchDp()*density),"turning off snap also disables edge collapse");
-        live.store.edit().putBoolean("snap",true).putBoolean("hide",false).commit();SystemClock.sleep(350);
+        check(overlayBounds().width()==Math.round(live.touchDp()*density),"snap off keeps the ball at its full size");
+        live.store.edit().putBoolean("snap",true).commit();SystemClock.sleep(350);
+    }
+    /**
+     * Minimal navigation service declaration plus the quick menu driven by real overlay taps.
+     * Dispatching the global actions themselves runs in scripts/check-device.py: UiAutomation
+     * suppresses other accessibility services, so the host enables the service outside a session.
+     */
+    private void navigationChecks(Prefs live) throws Exception {
+        android.content.pm.ServiceInfo nav=app.getPackageManager().getServiceInfo(
+            new ComponentName(app,NavigationAccessibilityService.class),android.content.pm.PackageManager.GET_META_DATA);
+        check(nav.exported&&"android.permission.BIND_ACCESSIBILITY_SERVICE".equals(nav.permission),"navigation service is bound by the system-protected accessibility permission");
+        check(nav.metaData!=null&&nav.metaData.getInt("android.accessibilityservice")!=0,"navigation service ships its accessibility configuration");
+        boolean readsWindows=true,performsGestures=true,takesScreenshots=true,tool=true;
+        try(android.content.res.XmlResourceParser parser=app.getResources().getXml(nav.metaData.getInt("android.accessibilityservice"))){
+            String namespace="http://schemas.android.com/apk/res/android";
+            for(int event=parser.next();event!=android.content.res.XmlResourceParser.END_DOCUMENT;event=parser.next()){
+                if(event!=android.content.res.XmlResourceParser.START_TAG)continue;
+                android.util.AttributeSet attributes=android.util.Xml.asAttributeSet(parser);
+                readsWindows=attributes.getAttributeBooleanValue(namespace,"canRetrieveWindowContent",true);
+                performsGestures=attributes.getAttributeBooleanValue(namespace,"canPerformGestures",true);
+                takesScreenshots=attributes.getAttributeBooleanValue(namespace,"canTakeScreenshot",true);
+                tool=attributes.getAttributeBooleanValue(namespace,"isAccessibilityTool",true);
+                break;
+            }
+        }
+        check(!readsWindows&&!performsGestures&&!takesScreenshots,"navigation service cannot read windows, screenshot or inject gestures");
+        check(!tool,"navigation service is declared as a convenience tool, not an accessibility tool");
+        live.store.edit().putInt("quick_actions",0xF0).commit();
+        check(live.quickActions()==QuickAction.ROTATE.bit,"unknown quick-action bits fall back to rotate");
+        live.store.edit().putInt("quick_actions",0).commit();
+        check(live.quickActions()==QuickAction.ROTATE.bit,"an empty quick-action selection falls back to rotate");
+        check(!live.setQuickAction(QuickAction.ROTATE,false),"the last remaining quick action cannot be disabled");
+        live.store.edit().putInt("quick_actions",QuickAction.ALL).commit();
+        check(QuickAction.selected(live.quickActions()).length==4,"all four quick actions can be selected");
+        live.store.edit().putInt("quick_actions",QuickAction.ROTATE.bit|QuickAction.HOME.bit).commit();
+        check(!live.needsAccessibility(),"rotate and home need no accessibility service");
+        live.store.edit().putInt("quick_actions",QuickAction.ROTATE.bit|QuickAction.BACK.bit).commit();
+        check(live.needsAccessibility(),"back asks for the accessibility service");
+        live.store.edit().putInt("quick_actions",QuickAction.ROTATE.bit|QuickAction.RECENTS.bit).commit();
+        check(live.needsAccessibility(),"recents asks for the accessibility service");
+        live.store.edit().putInt("quick_actions",QuickAction.ALL).commit();
+        if(RotationService.running)disable();
+        enable();
+        await(()->overlayNode("打开快捷操作")!=null,"floating ball switches to menu mode with several actions",3000);
+        int beforeRotate=display().getRotation();
+        Rect bubble=new Rect();ballNode().getBoundsInScreen(bubble);tap(bubble);
+        String[] ringLabels={"旋转","返回","桌面","最近任务"};
+        await(()->overlayRects(ringLabels).size()==4,"quick menu lists every selected action",3000);
+        SystemClock.sleep(350);
+        java.util.Map<String,Rect> ringRects=overlayRects(ringLabels);
+        check(ringRects.size()==4,"ring keys stay present for the geometry check");
+        Rect ballBounds=new Rect();ballNode().getBoundsInScreen(ballBounds);
+        double nearest=Double.MAX_VALUE,farthest=0;
+        for(String label:ringLabels) {
+            Rect cell=ringRects.get(label);
+            double distance=Math.hypot(cell.exactCenterX()-ballBounds.exactCenterX(),cell.exactCenterY()-ballBounds.exactCenterY());
+            nearest=Math.min(nearest,distance);farthest=Math.max(farthest,distance);
+        }
+        check(farthest-nearest<=app.getResources().getDisplayMetrics().density,"quick keys sit on one circle around the dot");
+        boolean opensRight=ballBounds.exactCenterX()<bounds().width()/2.0;
+        double inwardReach=0;
+        for(String label:ringLabels) {
+            double inward=(ringRects.get(label).exactCenterX()-ballBounds.exactCenterX())*(opensRight?1:-1);
+            inwardReach=Math.max(inwardReach,inward);
+        }
+        check(inwardReach>Math.round(20*app.getResources().getDisplayMetrics().density),"quick keys fan out toward the screen interior");
+        capture("quick-menu.png");
+        Rect rotate=new Rect();menuCell("旋转").getBoundsInScreen(rotate);tap(rotate);
+        await(()->display().getRotation()!=beforeRotate,"quick menu rotate action changes orientation",4000);
+        await(()->menuCell("返回")==null,"menu closes after an action",3000);
+        // Evidence captures: menu over the launcher, dark scheme, and the settings section.
+        getUiAutomation().executeShellCommand("settings put system user_rotation 0").close();SystemClock.sleep(1500);
+        getUiAutomation().executeShellCommand("input keyevent KEYCODE_HOME").close();SystemClock.sleep(1000);
+        bubble=new Rect();ballNode().getBoundsInScreen(bubble);tap(bubble);
+        await(()->menuCell("最近任务")!=null,"menu opens over the launcher",3000);
+        capture("quick-menu-over-launcher.png");
+        bubble=new Rect();ballNode().getBoundsInScreen(bubble);tap(bubble);
+        await(()->menuCell("最近任务")==null,"menu closes on a second ball tap",3000);
+        getUiAutomation().executeShellCommand("cmd uimode night yes").close();SystemClock.sleep(2500);
+        bubble=new Rect();ballNode().getBoundsInScreen(bubble);tap(bubble);
+        await(()->menuCell("最近任务")!=null,"menu opens in the dark scheme",3000);
+        capture("quick-menu-dark.png");
+        bubble=new Rect();ballNode().getBoundsInScreen(bubble);tap(bubble);
+        await(()->menuCell("最近任务")==null,"dark menu closes on a second ball tap",3000);
+        getUiAutomation().executeShellCommand("cmd uimode night no").close();SystemClock.sleep(2500);
+        showApp();SystemClock.sleep(600);
+        for(int i=0;i<3;i++){getUiAutomation().executeShellCommand("input swipe 800 850 800 300 400").close();SystemClock.sleep(700);}
+        capture("settings-quick-actions.png");
+        showApp();SystemClock.sleep(700);
+        bubble=new Rect();ballNode().getBoundsInScreen(bubble);tap(bubble);
+        await(()->menuCell("返回")!=null,"menu reopens for a navigation action",3000);
+        SystemClock.sleep(350);
+        Rect back=new Rect();menuCell("返回").getBoundsInScreen(back);tap(back);
+        await(()->menuCell("返回")==null,"menu closes after a navigation action",3000);
+        if(NavigationAccessibilityService.isConnected())
+            await(()->{AccessibilityNodeInfo root=getUiAutomation().getRootInActiveWindow();
+                return root!=null&&!app.getPackageName().contentEquals(root.getPackageName());},"connected navigation action leaves the app",5000);
+        else
+            await(()->{AccessibilityNodeInfo root=getUiAutomation().getRootInActiveWindow();
+                return root!=null&&app.getPackageName().contentEquals(root.getPackageName());},"suppressed navigation action keeps the current app open",3000);
+        // Home is a plain CATEGORY_HOME start: no accessibility service involved at all.
+        check(!NavigationAccessibilityService.isConnected(),"home runs without the accessibility service");
+        showApp();SystemClock.sleep(700);
+        bubble=new Rect();ballNode().getBoundsInScreen(bubble);tap(bubble);
+        await(()->menuCell("桌面")!=null,"menu reopens for the home action",3000);
+        SystemClock.sleep(350);
+        Rect home=new Rect();menuCell("桌面").getBoundsInScreen(home);tap(home);
+        await(()->{AccessibilityNodeInfo root=getUiAutomation().getRootInActiveWindow();
+            return root!=null&&"com.android.launcher3".contentEquals(root.getPackageName());},"home action returns to the launcher without extra permission",5000);
+        live.store.edit().putInt("quick_actions",QuickAction.ROTATE.bit).commit();
     }
     @Override public void onStart() {
         app=getTargetContext();Bundle output=new Bundle();int result=Activity.RESULT_OK;
+        // A failed run can leave multi-action preferences behind; the regression flow below is built
+        // around the single-action ball.
+        new Prefs(app).store.edit().putInt("quick_actions",QuickAction.ROTATE.bit).putBoolean("snap",true).commit();
         try {
             AccessibilityServiceInfo info=getUiAutomation().getServiceInfo();info.flags|=AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;getUiAutomation().setServiceInfo(info);
             check("ranchu".equals(Build.HARDWARE)||"goldfish".equals(Build.HARDWARE),"isolated emulator guard");
@@ -186,7 +347,11 @@ public final class DeviceChecks extends Instrumentation {
             await(()->overlay()!=null,"real cross-app overlay is accessible",4000);
             int before=display().getRotation();
             Rect beforeBounds=bounds();
-            check(overlay().performAction(AccessibilityNodeInfo.ACTION_CLICK),"floating button accepts click");
+            check(overlay().performAction(AccessibilityNodeInfo.ACTION_CLICK),"floating dot accepts click");
+            await(()->overlayRects(new String[]{"旋转"}).size()==1,"fan opens from an accessibility click",3000);
+            SystemClock.sleep(350);
+            Rect rotateKey=overlayRects(new String[]{"旋转"}).get("旋转");
+            tap(rotateKey);
             await(()->display().getRotation()!=before,"display really rotates",5000);
             SystemClock.sleep(500);
             Rect after=bounds();
@@ -201,10 +366,10 @@ public final class DeviceChecks extends Instrumentation {
             Rect moved=new Rect();overlay().getBoundsInScreen(moved);
             check(moved.left<bubble.left&&moved.top<bubble.top,"finger drag really moves the floating window");
             check(new Prefs(app).x(after.width()>after.height())<.05f,"drag snaps and persists left-edge position");
-            SystemClock.sleep(3100);tap(moved);
-            await(()->display().getRotation()!=beforeDrag,"one tap works directly after idle fade",4000);
-            SystemClock.sleep(1600);Rect other=new Rect();overlay().getBoundsInScreen(other);tap(other);
-            await(()->display().getRotation()==beforeDrag,"second tap returns to prior orientation",4000);
+            SystemClock.sleep(3100);rotateViaRing();
+            await(()->display().getRotation()!=beforeDrag,"rotation works from the fan after idle fade",5000);
+            SystemClock.sleep(1600);rotateViaRing();
+            await(()->display().getRotation()==beforeDrag,"a second run returns to the prior orientation",5000);
             SystemClock.sleep(1600);Rect restored=new Rect();overlay().getBoundsInScreen(restored);
             check(Math.abs(restored.left-moved.left)<=2&&Math.abs(restored.top-moved.top)<=2,"orientation-specific position is restored: " + moved.toShortString() + " -> " + restored.toShortString());
             getUiAutomation().executeShellCommand("input keyevent KEYCODE_HOME").close();SystemClock.sleep(500);
@@ -242,28 +407,28 @@ public final class DeviceChecks extends Instrumentation {
             Rect freeStart=new Rect();overlay().getBoundsInScreen(freeStart);Rect full=bounds();drag(freeStart,full.width()/2,full.height()/3);SystemClock.sleep(350);
             Rect freeEnd=new Rect();overlay().getBoundsInScreen(freeEnd);
             check(freeEnd.left>full.width()/4&&freeEnd.right<full.width()*3/4,"free placement is not forced to an edge");
-            live.store.edit().putBoolean("snap",true).putBoolean("hide",true).commit();SystemClock.sleep(3450);
-            Rect tucked=new Rect();overlay().getBoundsInScreen(tucked);
-            check(tucked.width()>=Math.round(48*app.getResources().getDisplayMetrics().density)-1,"tucked button retains a 48dp touch target");
-            int beforeTucked=display().getRotation();tap(tucked);
-            await(()->display().getRotation()!=beforeTucked,"one tap on tucked button directly rotates",4000);SystemClock.sleep(500);
-            live.store.edit().putBoolean("hide",false).putInt("size",2).commit();SystemClock.sleep(300);
+            live.store.edit().putBoolean("snap",true).commit();SystemClock.sleep(3450);
+            Rect faded=new Rect();overlay().getBoundsInScreen(faded);
+            check(faded.width()==Math.round(live.touchDp()*app.getResources().getDisplayMetrics().density),"idle fade never changes the ball window");
+            int beforeFade=display().getRotation();rotateViaRing();
+            await(()->display().getRotation()!=beforeFade,"a faded dot still rotates from the fan",5000);SystemClock.sleep(500);
+            live.store.edit().putInt("size",2).commit();SystemClock.sleep(300);
             final int expectedSize=Math.round(live.touchDp()*app.getResources().getDisplayMetrics().density);
             await(()->{AccessibilityNodeInfo node=overlay();if(node==null)return false;Rect rect=new Rect();node.getBoundsInScreen(rect);return Math.abs(rect.width()-expectedSize)<=1;},"live size updates and pressed scale returns to normal",2000);
             edgeChecks(live);
             showApp();
-            for(int index=0;index<IconCatalog.DRAWABLES.length;index++) {
-                final int chosen=index;
-                AccessibilityNodeInfo choice=byDescription(getUiAutomation().getRootInActiveWindow(),"图标："+IconCatalog.NAMES[index]);
-                check(choice!=null&&choice.performAction(AccessibilityNodeInfo.ACTION_CLICK),"designer icon "+index+" is selectable in real UI");
-                await(()->new Prefs(app).icon()==chosen,"designer icon "+index+" selection persists",2000);
-                await(()->{AccessibilityNodeInfo button=overlay();return button!=null&&("图标："+IconCatalog.NAMES[chosen]).contentEquals(button.getStateDescription());},"designer icon "+index+" updates the live overlay",2000);
-                java.util.List<android.content.pm.ResolveInfo> entries=app.getPackageManager().queryIntentActivities(
-                    new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(app.getPackageName()),0);
-                check(entries.size()==1&&entries.get(0).activityInfo.name.endsWith("."+IconCatalog.ALIASES[index]),"designer icon "+index+" leaves exactly one matching launcher entry");
-                check(RotationService.running,"designer icon "+index+" keeps foreground service alive");
+            // Logos are fixed: one launcher entry, and each action keeps its own native Tabler glyph.
+            java.util.List<android.content.pm.ResolveInfo> entries=app.getPackageManager().queryIntentActivities(
+                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(app.getPackageName()),0);
+            check(entries.size()==1&&entries.get(0).activityInfo.name.equals(MainActivity.class.getName()),
+                "the launcher entry is the fixed MainActivity logo");
+            check(RotationService.running,"the fixed launcher entry keeps the foreground service alive");
+            java.util.Set<Integer> actionIcons=new java.util.HashSet<>();
+            for(QuickAction action:QuickAction.values()) {
+                check(app.getDrawable(action.icon)!=null,"quick action "+action.name()+" keeps its native icon");
+                actionIcons.add(action.icon);
             }
-            runOnMainSync(()->{IconCatalog.applyLauncher(app,0);new Prefs(app).store.edit().putInt("icon",0).commit();});
+            check(actionIcons.size()==QuickAction.values().length,"the four quick actions use four distinct native icons");
             getUiAutomation().executeShellCommand("input keyevent KEYCODE_SLEEP").close();
             await(()->overlay()==null,"screen-off hides the overlay",4000);
             getUiAutomation().executeShellCommand("input keyevent KEYCODE_WAKEUP").close();SystemClock.sleep(400);
@@ -274,9 +439,9 @@ public final class DeviceChecks extends Instrumentation {
             check(setting(Settings.System.ACCELEROMETER_ROTATION)==1,"permission revocation restores prior rotation settings");
             getUiAutomation().executeShellCommand("appops set de.xianmu.arotation SYSTEM_ALERT_WINDOW allow").close();SystemClock.sleep(300);
             check(Settings.canDrawOverlays(app),"test restores overlay permission");
-            new Prefs(app).store.edit().putInt("size",99).putInt("opacity",0).putInt("icon",99).commit();
+            navigationChecks(new Prefs(app));
+            new Prefs(app).store.edit().putInt("size",99).putInt("opacity",0).commit();
             check(new Prefs(app).size()==2&&new Prefs(app).opacity()==25,"invalid saved sizes and opacity are bounded");
-            check(new Prefs(app).icon()==5,"invalid saved icon is bounded");
             new Prefs(app).store.edit().clear().commit();
             Settings.System.putInt(app.getContentResolver(),Settings.System.USER_ROTATION,0);
             Settings.System.putInt(app.getContentResolver(),Settings.System.ACCELEROMETER_ROTATION,0);
