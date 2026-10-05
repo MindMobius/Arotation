@@ -28,6 +28,25 @@ adb -s emulator-5560 shell am instrument -w de.xianmu.arotation.test/de.xianmu.a
 必须检查输出的 `TOTAL ... passed` 与 `FAIL`，不能只看 `am instrument` 的退出码。
 测试使用 Android Framework Instrumentation，没有 JUnit 或 AndroidX。
 
+### 快捷操作与系统导航
+
+扇形菜单本身由 Instrumentation 验证：四个动作是否齐备、四个键是否落在同一个圆周上并朝屏幕内侧展开、
+从扇形执行旋转、二次轻点收起、明暗两套截图、闲置只改变透明度，以及无障碍声明的安全边界
+（不能读窗口、不能截图、不能注入手势）。
+桌面 Logo 与动作图标固定：断言唯一 launcher 入口是 `MainActivity`，四个动作各自保留可解析的原生图标资源。
+旋转后还会断言圆点仍在可见范围内，覆盖“旋转后圆点丢失”的回归。
+桌面动作也在 Instrumentation 内端到端验证，因为它不需要任何提权：`UiAutomation` 抑制无障碍服务时，
+轻点桌面键仍必须回到启动器。
+
+系统动作的真正派发由 `scripts/check-device.py` 在测试会话之外验证：
+脚本先在不开启无障碍服务的情况下用真实 `input tap` 执行桌面；再打开最小无障碍服务，
+从 `dumpsys window` 取悬浮球和按键窗口坐标，执行返回与最近任务，并在结束时关闭服务与多余的快捷操作。
+
+两个已知约束：
+
+- `UiAutomation` 默认抑制其他无障碍服务，所以导航派发不能在 Instrumentation 内验证；
+- 重新安装 APK 会让系统把已开启的无障碍服务标记为 crashed，需要重启设备或重新开关后再绑定。
+
 ## 发布包原样验证
 
 `build-release.py --tests` 会使用同一发布签名生成 release 和 androidTest 两个 APK。
@@ -48,7 +67,6 @@ adb -s emulator-5560 install -r app/build/outputs/apk/androidTest/release/app-re
 
 ```sh
 python scripts/check-device.py --serial emulator-5560
-python scripts/check-icons.py --serial emulator-5560
 python scripts/check-startup.py --serial emulator-5560
 # 测试正式签名、不可调试的 APK
 python scripts/check-startup.py --serial emulator-5560 --release
